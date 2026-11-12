@@ -3,7 +3,6 @@ name: Auto Renew Bot-hosting
 on:
   schedule:
     - cron: '20 1 * * *' # 每日 UTC 01:20 = 北京时间 09:20
-      # 原 0 点整：GitHub schedule 排队高峰常有数小时延迟（实测迟过 4h47m），错开减少延迟。
   workflow_dispatch:
     inputs:
       dry_run:
@@ -16,8 +15,6 @@ jobs:
   Renew-bot:
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    # Turnstile 最长等 240s + 后台确认轮询 90s + 整页重载，比默认 360 分钟小得多，
-    # 但设个上限，免得卡死后白占 runner 直到超时。
     concurrency:
       group: aut0-renew-bot-hosting
       cancel-in-progress: false
@@ -26,7 +23,14 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4  # <--- FIX 1: v7 nahi hota, v4 hota hai
+
+      # 👇 FIX 2: Ye naya step pip bug ko fix karega
+      - name: 🛠️ Fix Pip Environment
+        run: |
+          python -m ensurepip --upgrade
+          python -m pip install --upgrade pip --force-reinstall
+          pip install seleniumbase requests
 
       - name: 🔄 运行续期脚本（renew-kit）
         uses: jardanlau2020/renew-kit/.github/actions/renew@v0.5.3
@@ -35,9 +39,7 @@ jobs:
           python-version: "3.12"
           renewkit-ref: v0.5.3
           apt-packages: "xvfb x11-utils xdotool scrot fonts-noto-cjk jq wget"
-          pip-packages: "seleniumbase requests"
-          # 多行：chromedriver 装失败也不挡代理（action 的 setup step 是
-          # set -uo pipefail 无 -e，且默认 continue-on-error）。
+          pip-packages: ""  # <--- FIX 3: Khali chhod diya taaki action wapas pip install na kare
           setup-command: |
             seleniumbase install chromedriver
             bash scripts/setup_proxy.sh
@@ -70,8 +72,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # 只保留最近 5 条。原实现 count>1 就删，等于每次只留 1 条 ——
-          # 出问题（例如续期报「结果未知」）时根本回看不了日志。
           KEEP=5
           runs=$(gh run list --workflow="${{ github.workflow }}" --limit=100 --json databaseId --jq '.[].databaseId')
           count=0
